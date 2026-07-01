@@ -4,18 +4,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import DbSession, get_current_user
-from app.core.cache import get_cached_analytics, get_repo_progress, set_cached_analytics
+from app.core.cache import get_cached_analytics, set_cached_analytics
 from app.git.url_parser import InvalidRepositoryUrlError
 from app.models.enums import RepositoryStatus
 from app.models.user import User
 from app.schemas.repository import (
     METRIC_KEYS,
+    AnalysisReportResponse,
     AnalysisStatusResponse,
     AnalyticsResponse,
     CreateRepositoryRequest,
     MetricSnapshotResponse,
     RepositoryDetailResponse,
-    RepositoryHistoryItem,
     RepositoryListResponse,
     RepositoryResponse,
     SubmitRepositoryResponse,
@@ -26,11 +26,13 @@ from app.services.repository_service import (
     DuplicateRepositoryError,
     InvalidMetricKeyError,
     RepositoryNotFoundError,
+    build_analysis_report_response,
+    build_repository_history_item,
     create_repository,
     delete_repository_data,
     get_all_analytics,
-    get_latest_job,
     get_metric_analytics,
+    get_repository_progress,
     get_summary_snapshot,
     get_user_repository,
     list_repositories_with_summary,
@@ -93,20 +95,9 @@ def list_repos(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> RepositoryListResponse:
     items, total = list_repositories_with_summary(db, user_id=current_user.id)
-    history_items = []
-    for repo, raw_summary in items:
-        summary = None
-        if raw_summary:
-            summary = SummaryPayload(
-                total_commits=raw_summary["total_commits"],
-                total_contributors=raw_summary["total_contributors"],
-                first_commit=raw_summary.get("first_commit"),
-                last_commit=raw_summary.get("last_commit"),
-                avg_commits_per_day=raw_summary["avg_commits_per_day"],
-            )
-        history_items.append(
-            RepositoryHistoryItem(**_to_response(repo).model_dump(), summary=summary)
-        )
+    history_items = [
+        build_repository_history_item(db, repo, raw_summary) for repo, raw_summary in items
+    ]
     return RepositoryListResponse(items=history_items, total=total)
 
 
@@ -136,6 +127,20 @@ def get_repo(
     return RepositoryDetailResponse(**_to_response(repo).model_dump(), summary=summary)
 
 
+@router.get("/{repository_id}/report", response_model=AnalysisReportResponse)
+def get_repo_report(
+    repository_id: UUID,
+    db: DbSession,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> AnalysisReportResponse:
+    try:
+        repo = get_user_repository(db, user_id=current_user.id, repository_id=repository_id)
+    except RepositoryNotFoundError:
+        raise NOT_FOUND from None
+
+    return AnalysisReportResponse(**build_analysis_report_response(db, repo))
+
+
 @router.get("/{repository_id}/status", response_model=AnalysisStatusResponse)
 def get_status(
     repository_id: UUID,
@@ -147,15 +152,12 @@ def get_status(
     except RepositoryNotFoundError:
         raise NOT_FOUND from None
 
-    job = get_latest_job(db, repo.id)
-    progress = get_repo_progress(repo.id)
+    progress = get_repository_progress(db, repo)
     return AnalysisStatusResponse(
         status=repo.status,
-        stage=progress.get("stage") if progress else (job.stage if job else None),
-        progress_pct=(
-            progress.get("progress_pct", 0) if progress else (job.progress_pct if job else 0)
-        ),
-        error_message=job.error_message if job else None,
+        stage=progress["stage"],
+        progress_pct=progress["progress_pct"],
+        error_message=progress["error_message"],
     )
 
 

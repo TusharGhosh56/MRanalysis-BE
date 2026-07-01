@@ -101,12 +101,20 @@ def test_analytics_engine_computes_metrics(db_session):
     keys = {s.metric_key for s in snapshots}
     assert "summary" in keys
     assert "commits_per_week" in keys
+    assert "commits_by_weekday" in keys
+    assert "commits_by_hour" in keys
     assert "top_contributors" in keys
     assert "bus_factor" in keys
+    assert "commit_message_patterns" in keys
+    assert "file_type_breakdown" in keys
+    assert "contributor_timeline" in keys
+    assert "code_ownership" in keys
+    assert "activity_patterns" in keys
 
     summary = next(s for s in snapshots if s.metric_key == "summary").payload
     assert summary["total_commits"] == 3
     assert summary["total_contributors"] == 2
+    assert summary["total_lines_changed"] == 19
 
 
 def test_analytics_engine_merges_same_email_different_names(db_session):

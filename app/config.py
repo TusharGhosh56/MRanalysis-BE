@@ -35,7 +35,10 @@ class Settings(BaseSettings):
     ANALYTICS_CACHE_TTL_SECONDS: int = 300
     GIT_CLONE_TIMEOUT_SECONDS: int = 600
     PARSE_BATCH_SIZE: int = 500
+    PARSE_USE_GIT_LOG: bool = True
+    ANALYSIS_MAX_COMMITS: int = 0
     INACTIVE_CONTRIBUTOR_DAYS: int = 90
+    JOB_POLL_TIMEOUT_SECONDS: int = 240
 
     @field_validator("SECRET_KEY")
     @classmethod

@@ -19,6 +19,20 @@ from app.models.user import User
 
 settings = get_settings()
 
+_IN_PROGRESS_STATUSES = frozenset(
+    {
+        RepositoryStatus.PENDING,
+        RepositoryStatus.CLONING,
+        RepositoryStatus.PARSING,
+        RepositoryStatus.ANALYZING,
+    }
+)
+
+POLLING_TIMEOUT_MESSAGE = (
+    "Analysis is taking longer than expected. Processing continues in the background—"
+    "you can track progress on the Analysis Report page."
+)
+
 
 class RepositoryNotFoundError(Exception):
     pass
@@ -141,6 +155,74 @@ def get_latest_job(db: Session, repository_id: UUID) -> AnalysisJob | None:
     )
 
 
+def get_repository_progress(db: Session, repository: Repository) -> dict:
+    from app.core.cache import get_repo_progress
+
+    job = get_latest_job(db, repository.id)
+    cached = get_repo_progress(repository.id)
+    return {
+        "stage": cached.get("stage") if cached else (job.stage if job else None),
+        "progress_pct": (
+            cached.get("progress_pct", 0) if cached else (job.progress_pct if job else 0)
+        ),
+        "error_message": job.error_message if job else None,
+        "latest_job_id": job.id if job else None,
+    }
+
+
+def _summary_from_snapshot(raw: dict | None) -> "SummaryPayload | None":
+    from app.schemas.repository import SummaryPayload
+
+    if not raw:
+        return None
+    return SummaryPayload(
+        total_commits=raw["total_commits"],
+        total_contributors=raw["total_contributors"],
+        first_commit=raw.get("first_commit"),
+        last_commit=raw.get("last_commit"),
+        avg_commits_per_day=raw["avg_commits_per_day"],
+    )
+
+
+def build_repository_history_item(
+    db: Session, repository: Repository, raw_summary: dict | None
+) -> dict:
+    from app.schemas.repository import RepositoryHistoryItem, RepositoryResponse
+
+    progress = get_repository_progress(db, repository)
+    return RepositoryHistoryItem(
+        **RepositoryResponse.model_validate(repository).model_dump(),
+        summary=_summary_from_snapshot(raw_summary),
+        stage=progress["stage"],
+        progress_pct=progress["progress_pct"],
+        error_message=progress["error_message"],
+        latest_job_id=progress["latest_job_id"],
+    ).model_dump(mode="json")
+
+
+def build_analysis_report_response(db: Session, repository: Repository) -> dict:
+    from app.schemas.repository import AnalysisReportResponse, RepositoryResponse
+
+    progress = get_repository_progress(db, repository)
+    summary = None
+    metrics = None
+    computed_at = None
+
+    if repository.status == RepositoryStatus.COMPLETED:
+        summary = _summary_from_snapshot(get_summary_snapshot(db, repository.id))
+        metrics, computed_at = get_all_analytics(db, repository)
+
+    return AnalysisReportResponse(
+        **RepositoryResponse.model_validate(repository).model_dump(),
+        stage=progress["stage"],
+        progress_pct=progress["progress_pct"],
+        error_message=progress["error_message"],
+        summary=summary,
+        computed_at=computed_at,
+        metrics=metrics,
+    ).model_dump(mode="json")
+
+
 def delete_repository_data(db: Session, repository: Repository) -> None:
     invalidate_analytics_cache(repository.id)
     GitRepositoryCloner().remove_clone(repository.clone_path)
@@ -218,16 +300,17 @@ def get_user_job(db: Session, *, user_id: UUID, job_id: UUID) -> AnalysisJob:
 
 
 def build_job_poll_response(db: Session, job: AnalysisJob) -> dict:
-    from app.core.cache import get_repo_progress
+    from datetime import UTC, datetime
+
     from app.schemas.repository import AnalysisResult, CompletedRepositoryPayload, JobPollResponse
 
     repository = db.get(Repository, job.repository_id)
     if repository is None:
         raise JobNotFoundError
 
-    progress = get_repo_progress(repository.id)
-    stage = progress.get("stage") if progress else job.stage
-    progress_pct = progress.get("progress_pct", 0) if progress else job.progress_pct
+    repo_progress = get_repository_progress(db, repository)
+    stage = repo_progress["stage"]
+    progress_pct = repo_progress["progress_pct"]
 
     result = None
     if repository.status == RepositoryStatus.COMPLETED:
@@ -238,13 +321,27 @@ def build_job_poll_response(db: Session, job: AnalysisJob) -> dict:
             metrics=metrics,
         )
 
+    polling_timed_out = False
+    error_message = job.error_message
+    if repository.status in _IN_PROGRESS_STATUSES:
+        created_at = job.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        elapsed_seconds = (datetime.now(UTC) - created_at).total_seconds()
+        if elapsed_seconds > settings.JOB_POLL_TIMEOUT_SECONDS:
+            polling_timed_out = True
+            if not error_message:
+                error_message = POLLING_TIMEOUT_MESSAGE
+
     return JobPollResponse(
         job_id=job.id,
         repository_id=repository.id,
         status=repository.status,
         stage=stage,
         progress_pct=progress_pct,
-        error_message=job.error_message,
+        error_message=error_message,
+        polling_timed_out=polling_timed_out,
+        poll_timeout_seconds=settings.JOB_POLL_TIMEOUT_SECONDS,
         result=result,
     ).model_dump(mode="json")
 

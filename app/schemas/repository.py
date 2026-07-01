@@ -10,12 +10,20 @@ METRIC_KEYS = frozenset(
     {
         "summary",
         "commits_per_week",
+        "commits_by_weekday",
+        "commits_by_hour",
         "top_contributors",
         "top_modified_files",
         "inactive_contributors",
         "folder_growth",
         "bus_factor",
         "largest_commits",
+        "commit_message_patterns",
+        "merge_vs_regular",
+        "file_type_breakdown",
+        "contributor_timeline",
+        "code_ownership",
+        "activity_patterns",
     }
 )
 
@@ -46,6 +54,10 @@ class SummaryPayload(BaseModel):
 
 class RepositoryHistoryItem(RepositoryResponse):
     summary: SummaryPayload | None = None
+    stage: str | None = None
+    progress_pct: int = 0
+    error_message: str | None = None
+    latest_job_id: UUID | None = None
 
 
 class RepositoryListResponse(BaseModel):
@@ -55,6 +67,15 @@ class RepositoryListResponse(BaseModel):
 
 class RepositoryDetailResponse(RepositoryResponse):
     summary: SummaryPayload | None = None
+
+
+class AnalysisReportResponse(RepositoryResponse):
+    stage: str | None = None
+    progress_pct: int = 0
+    error_message: str | None = None
+    summary: SummaryPayload | None = None
+    computed_at: datetime | None = None
+    metrics: dict[str, Any] | None = None
 
 
 class AnalysisStatusResponse(BaseModel):
@@ -111,4 +132,6 @@ class JobPollResponse(BaseModel):
     stage: str | None = None
     progress_pct: int
     error_message: str | None = None
+    polling_timed_out: bool = False
+    poll_timeout_seconds: int = 240
     result: AnalysisResult | None = None
