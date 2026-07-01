@@ -38,3 +38,20 @@ API docs: http://localhost:8000/docs
 ## Tests
 
 `pytest`
+
+## Deploy on Render (free tier)
+
+Pre-deploy commands are paid on Render. Migrations run automatically on API startup via `scripts/start-api.sh`.
+
+**Web service Start Command** (optional override if not using Docker CMD):
+
+```bash
+alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+**One-time fix without redeploying code** — run locally against Render's **External** Postgres URL:
+
+```powershell
+$env:DATABASE_URL="postgresql+psycopg://USER:PASS@HOST/DB"
+alembic upgrade head
+```
