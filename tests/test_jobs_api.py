@@ -1,6 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -43,6 +43,8 @@ def test_job_poll_pending(mock_enqueue, client, auth_headers):
     body = poll.json()
     assert body["status"] == "pending"
     assert body["result"] is None
+    assert body["polling_timed_out"] is False
+    assert body["poll_timeout_seconds"] == 240
     assert body["job_id"] == job_id
 
 
@@ -111,3 +113,24 @@ def test_job_poll_not_found(client, auth_headers):
 def test_job_poll_requires_auth(client):
     response = client.get(f"/api/v1/jobs/{uuid4()}")
     assert response.status_code == 401
+
+
+@patch("app.api.v1.repositories.enqueue_analysis")
+def test_job_poll_timeout_after_four_minutes(mock_enqueue, client, auth_headers, db_session):
+    headers, user = auth_headers
+    create = client.post(
+        "/api/v1/repositories",
+        json={"url": "https://github.com/octocat/Spoon-Knife"},
+        headers=headers,
+    )
+    job_id = create.json()["job_id"]
+    job = db_session.get(AnalysisJob, UUID(job_id))
+    job.created_at = datetime.now(UTC) - timedelta(minutes=4)
+    db_session.commit()
+
+    poll = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    assert poll.status_code == 200
+    body = poll.json()
+    assert body["polling_timed_out"] is True
+    assert body["status"] == "pending"
+    assert "Analysis Report page" in body["error_message"]

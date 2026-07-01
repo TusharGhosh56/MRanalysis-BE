@@ -6,18 +6,11 @@ from git import Repo
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.git.fast_log_parser import _infer_change_type
 from app.models.commit import Commit
 from app.models.file_change import FileChange
 
 settings = get_settings()
-
-CHANGE_TYPE_MAP = {
-    "A": "A",
-    "D": "D",
-    "M": "M",
-    "R": "R",
-    "T": "M",
-}
 
 
 class GitHistoryParser:
@@ -33,11 +26,11 @@ class GitHistoryParser:
     ) -> int:
         repo = Repo(str(clone_path))
         try:
+            total_commits = max(int(repo.git.rev_list("--count", "HEAD")), 1)
             commit_buffer: list[Commit] = []
-            file_change_buffer: list[FileChange] = []
             total = 0
 
-            for git_commit in repo.iter_commits():
+            for git_commit in repo.iter_commits(max_count=settings.ANALYSIS_MAX_COMMITS or None):
                 committed_at = datetime.fromtimestamp(git_commit.committed_date, tz=UTC)
                 parents = [p.hexsha for p in git_commit.parents]
                 commit_row = Commit(
@@ -52,37 +45,21 @@ class GitHistoryParser:
                 commit_buffer.append(commit_row)
                 total += 1
 
-                if git_commit.parents:
-                    try:
-                        diffs = git_commit.diff(git_commit.parents[0], create_patch=False)
-                    except Exception:
-                        diffs = []
-                else:
-                    try:
-                        diffs = git_commit.diff(None, create_patch=False)
-                    except Exception:
-                        diffs = []
-
-                for diff_item in diffs:
-                    change_type = CHANGE_TYPE_MAP.get(diff_item.change_type or "M", "M")
-                    path = diff_item.b_path or diff_item.a_path or ""
-                    if not path:
-                        continue
-                    file_change_buffer.append(
+                for path, stat in git_commit.stats.files.items():
+                    commit_row.file_changes.append(
                         FileChange(
-                            commit=commit_row,
                             file_path=path,
-                            change_type=change_type,
-                            insertions=0,
-                            deletions=0,
+                            change_type=_infer_change_type(stat.insertions, stat.deletions),
+                            insertions=stat.insertions,
+                            deletions=stat.deletions,
                         )
                     )
 
                 if len(commit_buffer) >= self.batch_size:
-                    self._flush(commit_buffer, file_change_buffer, on_progress, total)
+                    self._flush(commit_buffer, on_progress, total, total_commits)
 
             if commit_buffer:
-                self._flush(commit_buffer, file_change_buffer, on_progress, total)
+                self._flush(commit_buffer, on_progress, total, total_commits)
 
             return total
         finally:
@@ -91,13 +68,12 @@ class GitHistoryParser:
     def _flush(
         self,
         commit_buffer: list[Commit],
-        file_change_buffer: list[FileChange],
         on_progress: Callable[[int], None] | None,
-        total: int,
+        processed: int,
+        total_commits: int,
     ) -> None:
         self.db.add_all(commit_buffer)
         self.db.commit()
         commit_buffer.clear()
-        file_change_buffer.clear()
-        if on_progress:
-            on_progress(min(99, total % 100))
+        if on_progress and total_commits:
+            on_progress(min(100, int(processed * 100 / total_commits)))

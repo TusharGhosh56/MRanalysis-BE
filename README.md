@@ -14,6 +14,19 @@ FastAPI backend for analyzing GitHub repository history. See [plan.md](plan.md) 
    On **Windows**, if you still see `PermissionError` / `prefork` errors, use:
    `celery -A app.workers.celery_app worker --loglevel=info --pool=solo`
 
+   To run **several repos in parallel** on Windows (not one repo faster):
+   `celery -A app.workers.celery_app worker --loglevel=info --pool=threads --concurrency=4`
+
+## Performance (large repos)
+
+Parsing uses a fast `git log --numstat` path by default (`PARSE_USE_GIT_LOG=true`). For huge histories like Brython, you can cap work in `.env`:
+
+```env
+ANALYSIS_MAX_COMMITS=10000
+```
+
+Progress during parse now reflects real completion (not stuck at 30%). **Multiple Celery workers speed up concurrent repos**, not a single repo — each analysis is one sequential pipeline (clone → parse → analyze).
+
 API docs: http://localhost:8000/docs
 
 ## Endpoints

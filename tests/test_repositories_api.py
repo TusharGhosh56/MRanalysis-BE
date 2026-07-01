@@ -89,7 +89,11 @@ def test_list_and_get_repository(mock_enqueue, client, auth_headers, db_session)
     listed = client.get("/api/v1/repositories", headers=headers)
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
-    assert listed.json()["items"][0]["summary"] is None
+    item = listed.json()["items"][0]
+    assert item["summary"] is None
+    assert item["status"] == "pending"
+    assert item["latest_job_id"] is not None
+    assert item["progress_pct"] == 0
 
     detail = client.get(f"/api/v1/repositories/{repo_id}", headers=headers)
     assert detail.status_code == 200
@@ -168,3 +172,101 @@ def test_completed_analytics_flow(client, auth_headers, db_session):
     assert listed.status_code == 200
     item = next(i for i in listed.json()["items"] if i["id"] == str(repo.id))
     assert item["summary"]["total_commits"] == 2
+
+
+@patch("app.api.v1.repositories.enqueue_analysis")
+def test_report_in_progress(mock_enqueue, client, auth_headers):
+    headers, _ = auth_headers
+    create = client.post(
+        "/api/v1/repositories",
+        json={"url": "https://github.com/octocat/Hello-World"},
+        headers=headers,
+    )
+    repo_id = create.json()["repository_id"]
+
+    report = client.get(f"/api/v1/repositories/{repo_id}/report", headers=headers)
+    assert report.status_code == 200
+    body = report.json()
+    assert body["status"] == "pending"
+    assert body["metrics"] is None
+    assert body["summary"] is None
+    assert body["progress_pct"] == 0
+
+
+def test_report_completed(client, auth_headers, db_session):
+    headers, user = auth_headers
+    repo = Repository(
+        id=uuid4(),
+        user_id=user.id,
+        owner="demo",
+        name="report-repo",
+        url="https://github.com/demo/report-repo",
+        clone_path="./data/repos/demo/report-repo",
+        status=RepositoryStatus.COMPLETED,
+        analyzed_at=datetime.now(UTC),
+    )
+    db_session.add(repo)
+    db_session.add(
+        AnalyticsSnapshot(
+            repository_id=repo.id,
+            metric_key="summary",
+            payload={
+                "total_commits": 5,
+                "total_contributors": 2,
+                "first_commit": "2024-01-01T00:00:00+00:00",
+                "last_commit": "2024-02-01T00:00:00+00:00",
+                "avg_commits_per_day": 0.5,
+            },
+            computed_at=datetime.now(UTC),
+        )
+    )
+    db_session.add(
+        AnalyticsSnapshot(
+            repository_id=repo.id,
+            metric_key="bus_factor",
+            payload={"score": 1, "top_contributor_pct": 0.8},
+            computed_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    report = client.get(f"/api/v1/repositories/{repo.id}/report", headers=headers)
+    assert report.status_code == 200
+    body = report.json()
+    assert body["status"] == "completed"
+    assert body["metrics"]["summary"]["total_commits"] == 5
+    assert body["summary"]["total_commits"] == 5
+    assert body["computed_at"] is not None
+
+
+def test_report_failed(client, auth_headers, db_session):
+    from app.models.analysis_job import AnalysisJob
+
+    headers, user = auth_headers
+    repo = Repository(
+        id=uuid4(),
+        user_id=user.id,
+        owner="demo",
+        name="failed-repo",
+        url="https://github.com/demo/failed-repo",
+        clone_path="./data/repos/demo/failed-repo",
+        status=RepositoryStatus.FAILED,
+    )
+    db_session.add(repo)
+    db_session.flush()
+    db_session.add(
+        AnalysisJob(
+            repository_id=repo.id,
+            stage="clone",
+            progress_pct=0,
+            error_message="Clone failed: network error",
+        )
+    )
+    db_session.commit()
+
+    report = client.get(f"/api/v1/repositories/{repo.id}/report", headers=headers)
+    assert report.status_code == 200
+    body = report.json()
+    assert body["status"] == "failed"
+    assert body["error_message"] == "Clone failed: network error"
+    assert body["metrics"] is None

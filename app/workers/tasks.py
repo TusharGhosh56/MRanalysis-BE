@@ -7,7 +7,7 @@ from app.analytics.engine import AnalyticsEngine
 from app.core.cache import invalidate_analytics_cache, set_repo_progress
 from app.db.session import SessionLocal
 from app.git.cloner import GitCloneError, GitRepositoryCloner
-from app.git.parser import GitHistoryParser
+from app.git.history import parse_repository_history
 from app.models.commit import Commit
 from app.models.enums import RepositoryStatus
 from app.models.file_change import FileChange
@@ -108,11 +108,10 @@ def parse_history(repository_id: str) -> None:
         db.commit()
 
         def on_progress(pct: int) -> None:
-            mapped = min(85, 30 + pct // 2)
+            mapped = min(85, 30 + int(pct * 0.55))
             _set_progress(db, repo, "parse", mapped)
 
-        parser = GitHistoryParser(db, repo.id)
-        parser.parse(repo.clone_path, on_progress=on_progress)
+        parse_repository_history(db, repo.id, repo.clone_path, on_progress=on_progress)
 
         update_job_progress(db, repo, stage="parse", progress_pct=85)
         set_repo_progress(repo.id, stage="parse", progress_pct=85)

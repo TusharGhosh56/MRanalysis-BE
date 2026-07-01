@@ -30,4 +30,6 @@ class Commit(Base):
     )
 
     repository: Mapped[Repository] = relationship(back_populates="commits")
-    file_changes: Mapped[list[FileChange]] = relationship(back_populates="commit")
+    file_changes: Mapped[list[FileChange]] = relationship(
+        back_populates="commit", cascade="all, delete-orphan"
+    )
