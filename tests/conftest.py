@@ -18,7 +18,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 from app.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
-from app.models import Base
+from app.models import Base  # noqa: F401 - register all models
 
 get_settings.cache_clear()
 
