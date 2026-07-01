@@ -14,10 +14,12 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
+COPY scripts/start-api.sh ./scripts/start-api.sh
 
 RUN pip install --upgrade pip && \
-    pip install ".[dev]"
+    pip install ".[dev]" && \
+    chmod +x ./scripts/start-api.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./scripts/start-api.sh"]
