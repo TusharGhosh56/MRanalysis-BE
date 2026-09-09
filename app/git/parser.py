@@ -1,6 +1,9 @@
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+
+os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
 from git import Repo
 from sqlalchemy.orm import Session

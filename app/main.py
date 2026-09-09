@@ -1,4 +1,7 @@
+import os
 from contextlib import asynccontextmanager
+
+os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

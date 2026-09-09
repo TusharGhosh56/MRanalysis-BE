@@ -3,6 +3,8 @@ import shutil
 import stat
 from pathlib import Path
 
+os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
+
 from git import Repo
 
 from app.config import get_settings

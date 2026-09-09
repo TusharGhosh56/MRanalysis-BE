@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "env": {
+    "GIT_PYTHON_REFRESH": "quiet"
+  },
   "rewrites": [
     {
       "source": "/(.*)",
@@ -7,3 +10,4 @@
     }
   ]
 }
+
