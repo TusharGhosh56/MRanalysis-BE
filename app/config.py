@@ -20,9 +20,8 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
-    DATABASE_URL: str
-
-    SECRET_KEY: str
+    DATABASE_URL: str = "sqlite+pysqlite:///:memory:"
+    SECRET_KEY: str = "default-development-secret-key-32-characters-minimum"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
