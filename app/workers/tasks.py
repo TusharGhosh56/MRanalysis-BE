@@ -1,5 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from uuid import UUID
+import logging
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select
 
@@ -13,7 +15,18 @@ from app.models.enums import RepositoryStatus
 from app.models.file_change import FileChange
 from app.models.repository import Repository
 from app.services.repository_service import get_latest_job, update_job_progress
-from app.workers.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="analysis_worker")
+
+
+def get_executor() -> ThreadPoolExecutor:
+    return _executor
+
+
+def shutdown_executor(wait: bool = False) -> None:
+    _executor.shutdown(wait=wait)
 
 
 def _get_repository(db, repository_id: str) -> Repository:
@@ -28,37 +41,6 @@ def _set_progress(db, repo: Repository, stage: str, progress_pct: int) -> None:
     set_repo_progress(repo.id, stage=stage, progress_pct=progress_pct)
 
 
-@celery_app.task(bind=True, name="run_analysis_pipeline")
-def run_analysis_pipeline(self, repository_id: str) -> None:
-    db = SessionLocal()
-    repo = _get_repository(db, repository_id)
-    job = get_latest_job(db, repo.id)
-    if job:
-        job.celery_task_id = self.request.id
-        db.commit()
-
-    try:
-        clone_repo(repository_id)
-        parse_history(repository_id)
-        compute_analytics(repository_id)
-        mark_completed(repository_id)
-    except Exception as exc:
-        repo = _get_repository(db, repository_id)
-        update_job_progress(
-            db,
-            repo,
-            status=RepositoryStatus.FAILED,
-            stage="failed",
-            progress_pct=0,
-            error_message=str(exc),
-        )
-        set_repo_progress(repo.id, stage="failed", progress_pct=0)
-        raise
-    finally:
-        db.close()
-
-
-@celery_app.task(name="clone_repo")
 def clone_repo(repository_id: str) -> None:
     db = SessionLocal()
     try:
@@ -89,7 +71,6 @@ def clone_repo(repository_id: str) -> None:
         db.close()
 
 
-@celery_app.task(name="parse_history")
 def parse_history(repository_id: str) -> None:
     db = SessionLocal()
     try:
@@ -119,7 +100,6 @@ def parse_history(repository_id: str) -> None:
         db.close()
 
 
-@celery_app.task(name="compute_analytics")
 def compute_analytics(repository_id: str) -> None:
     db = SessionLocal()
     try:
@@ -138,7 +118,6 @@ def compute_analytics(repository_id: str) -> None:
         db.close()
 
 
-@celery_app.task(name="mark_completed")
 def mark_completed(repository_id: str) -> None:
     db = SessionLocal()
     try:
@@ -157,6 +136,41 @@ def mark_completed(repository_id: str) -> None:
         db.close()
 
 
+def run_analysis_pipeline(repository_id: str, task_id: str | None = None) -> None:
+    db = SessionLocal()
+    try:
+        repo = _get_repository(db, repository_id)
+        job = get_latest_job(db, repo.id)
+        if job and task_id:
+            job.celery_task_id = task_id
+            db.commit()
+
+        clone_repo(repository_id)
+        parse_history(repository_id)
+        compute_analytics(repository_id)
+        mark_completed(repository_id)
+    except Exception as exc:
+        logger.exception("Analysis pipeline failed for repository %s", repository_id)
+        try:
+            repo = _get_repository(db, repository_id)
+            update_job_progress(
+                db,
+                repo,
+                status=RepositoryStatus.FAILED,
+                stage="failed",
+                progress_pct=0,
+                error_message=str(exc),
+            )
+            set_repo_progress(repo.id, stage="failed", progress_pct=0)
+        except Exception:
+            logger.exception("Failed to mark repository %s as failed", repository_id)
+        raise
+    finally:
+        db.close()
+
+
 def enqueue_analysis(repository_id: UUID) -> str:
-    result = run_analysis_pipeline.delay(str(repository_id))
-    return result.id
+    task_id = str(uuid4())
+    _executor.submit(run_analysis_pipeline, str(repository_id), task_id)
+    return task_id
+

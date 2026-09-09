@@ -28,9 +28,11 @@ class Settings(BaseSettings):
 
     PASSWORD_MIN_LENGTH: int = 8
 
+    # Legacy Redis / Celery (Deprecated; in-process worker and in-memory cache used now)
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+
     REPOS_BASE_PATH: str = "./data/repos"
     ANALYTICS_CACHE_TTL_SECONDS: int = 300
     GIT_CLONE_TIMEOUT_SECONDS: int = 600
