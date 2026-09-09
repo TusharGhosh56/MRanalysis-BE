@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["health"])
     @app.get("/api", tags=["health"])
+    @app.api_route("/api/index.py", methods=["GET", "POST", "HEAD"], tags=["health"])
     def root() -> dict[str, str]:
         return {
             "status": "ok",
