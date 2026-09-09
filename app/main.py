@@ -38,9 +38,26 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.get("/", tags=["health"])
+    @app.get("/api", tags=["health"])
+    def root() -> dict[str, str]:
+        return {
+            "status": "ok",
+            "name": settings.APP_NAME,
+            "docs": "/docs",
+            "health": "/health",
+        }
+
     @app.get("/health", tags=["health"])
+    @app.get("/api/health", tags=["health"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/docs", include_in_schema=False)
+    def api_docs():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url="/docs")
 
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
