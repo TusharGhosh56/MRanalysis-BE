@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +41,56 @@ class Settings(BaseSettings):
     INACTIVE_CONTRIBUTOR_DAYS: int = 90
     JOB_POLL_TIMEOUT_SECONDS: int = 240
 
+    @field_validator(
+        "ACCESS_TOKEN_EXPIRE_MINUTES",
+        "PASSWORD_MIN_LENGTH",
+        "ANALYTICS_CACHE_TTL_SECONDS",
+        "GIT_CLONE_TIMEOUT_SECONDS",
+        "PARSE_BATCH_SIZE",
+        "ANALYSIS_MAX_COMMITS",
+        "INACTIVE_CONTRIBUTOR_DAYS",
+        "JOB_POLL_TIMEOUT_SECONDS",
+        mode="before",
+    )
+    @classmethod
+    def parse_int_safe(cls, value: object, info: ValidationInfo) -> int | object:
+        if isinstance(value, str):
+            clean = value.strip().strip("'").strip('"')
+            if not clean:
+                field_info = cls.model_fields.get(info.field_name)
+                return field_info.default if field_info else 0
+            try:
+                return int(clean)
+            except ValueError:
+                field_info = cls.model_fields.get(info.field_name)
+                return field_info.default if field_info else 0
+        return value
+
+    @field_validator("DEBUG", "PARSE_USE_GIT_LOG", mode="before")
+    @classmethod
+    def parse_bool_safe(cls, value: object, info: ValidationInfo) -> bool | object:
+        if isinstance(value, str):
+            clean = value.strip().lower()
+            if not clean:
+                field_info = cls.model_fields.get(info.field_name)
+                return field_info.default if field_info else False
+            if clean in ("true", "1", "yes", "on"):
+                return True
+            if clean in ("false", "0", "no", "off"):
+                return False
+        return value
+
+    @field_validator("DATABASE_URL", "SECRET_KEY", mode="before")
+    @classmethod
+    def clean_strings(cls, value: object, info: ValidationInfo) -> str | object:
+        if isinstance(value, str):
+            clean = value.strip().strip("'").strip('"')
+            if not clean:
+                field_info = cls.model_fields.get(info.field_name)
+                return field_info.default if field_info else ""
+            return clean
+        return value
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, value: str) -> str:
@@ -55,12 +105,23 @@ class Settings(BaseSettings):
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
+    def parse_cors_origins(cls, value: object) -> list[str] | object:
         if isinstance(value, str):
-            import json
+            clean = value.strip()
+            if not clean:
+                return ["http://localhost:5173"]
+            if clean.startswith("[") and clean.endswith("]"):
+                try:
+                    import json
 
-            return json.loads(value)
+                    parsed = json.loads(clean)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+            return [origin.strip() for origin in clean.split(",") if origin.strip()]
         return value
+
 
 
 @lru_cache
