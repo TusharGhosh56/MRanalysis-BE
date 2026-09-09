@@ -261,8 +261,8 @@ Prefer `/report` for the detail dashboard.
 ## Running locally
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres
 alembic upgrade head
 uvicorn app.main:app --reload
-celery -A app.workers.celery_app worker --loglevel=info
 ```
+

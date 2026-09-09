@@ -5,17 +5,13 @@ FastAPI backend for analyzing GitHub repository history. See [plan.md](plan.md) 
 ## Quick start
 
 1. Copy `.env.example` to `.env` and set a secure `SECRET_KEY`
-2. `docker compose up -d postgres redis`
+2. `docker compose up -d postgres`
 3. `pip install -e ".[dev]"`
 4. `alembic upgrade head`
 5. `uvicorn app.main:app --reload`
-6. `celery -A app.workers.celery_app worker --loglevel=info` (separate terminal)
 
-   On **Windows**, if you still see `PermissionError` / `prefork` errors, use:
-   `celery -A app.workers.celery_app worker --loglevel=info --pool=solo`
+> Background analysis pipelines (clone, parse, analyze) run automatically in-process via a thread pool worker. No separate Celery worker or Redis instance is required!
 
-   To run **several repos in parallel** on Windows (not one repo faster):
-   `celery -A app.workers.celery_app worker --loglevel=info --pool=threads --concurrency=4`
 
 ## Performance (large repos)
 
