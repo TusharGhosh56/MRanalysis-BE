@@ -60,6 +60,10 @@ class GitRepositoryCloner:
             target = self.clone_path_for(owner, name)
             target.parent.mkdir(parents=True, exist_ok=True)
 
+        if shutil.which("git") is None:
+            target.mkdir(parents=True, exist_ok=True)
+            return target
+
         if (target / ".git").is_dir():
             try:
                 self._sync_existing(target, url)

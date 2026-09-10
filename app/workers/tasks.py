@@ -51,6 +51,13 @@ def clone_repo(repository_id: str) -> None:
         )
         set_repo_progress(repo.id, stage="clone", progress_pct=5)
 
+        import shutil
+        if shutil.which("git") is None:
+            logger.info("Serverless runtime without git binary: skipping local clone for %s", repo.name)
+            update_job_progress(db, repo, stage="clone", progress_pct=25)
+            set_repo_progress(repo.id, stage="clone", progress_pct=25)
+            return
+
         cloner = GitRepositoryCloner()
         actual_path = cloner.clone(url=repo.url, owner=repo.owner, name=repo.name)
         if repo.clone_path != str(actual_path):
@@ -61,6 +68,13 @@ def clone_repo(repository_id: str) -> None:
         set_repo_progress(repo.id, stage="clone", progress_pct=25)
     except GitCloneError as exc:
         repo = _get_repository(db, repository_id)
+        import shutil
+        if shutil.which("git") is None or "not found" in str(exc).lower():
+            logger.warning("Git clone failed (%s), will fallback to GitHub REST API", exc)
+            update_job_progress(db, repo, stage="clone", progress_pct=25)
+            set_repo_progress(repo.id, stage="clone", progress_pct=25)
+            return
+
         update_job_progress(
             db,
             repo,
@@ -83,21 +97,30 @@ def parse_history(repository_id: str) -> None:
         )
         set_repo_progress(repo.id, stage="parse", progress_pct=30)
 
-        db.execute(delete(FileChange).where(
-            FileChange.commit_id.in_(
-                select(Commit.id).where(Commit.repository_id == repo.id)
-            )
-        ))
-        db.execute(delete(Commit).where(Commit.repository_id == repo.id))
-        db.commit()
-
         def on_progress(pct: int) -> None:
             mapped = min(85, 30 + int(pct * 0.55))
             _set_progress(db, repo, "parse", mapped)
 
+        import shutil
         cloner = GitRepositoryCloner()
-        actual_path = str(cloner.clone_path_for(repo.owner, repo.name))
-        parse_repository_history(db, repo.id, actual_path, on_progress=on_progress)
+        actual_path = cloner.clone_path_for(repo.owner, repo.name)
+        has_git = shutil.which("git") is not None and (actual_path / ".git").is_dir()
+
+        if has_git:
+            db.execute(delete(FileChange).where(
+                FileChange.commit_id.in_(
+                    select(Commit.id).where(Commit.repository_id == repo.id)
+                )
+            ))
+            db.execute(delete(Commit).where(Commit.repository_id == repo.id))
+            db.commit()
+            parse_repository_history(db, repo.id, str(actual_path), on_progress=on_progress)
+        else:
+            logger.info("Parsing repository history using GitHub REST API for %s/%s", repo.owner, repo.name)
+            from app.git.github_api import parse_repository_from_github_api
+            parse_repository_from_github_api(
+                db, repo.id, owner=repo.owner, name=repo.name, on_progress=on_progress
+            )
 
         update_job_progress(db, repo, stage="parse", progress_pct=85)
         set_repo_progress(repo.id, stage="parse", progress_pct=85)

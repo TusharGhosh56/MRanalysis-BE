@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     ANALYSIS_MAX_COMMITS: int = 0
     INACTIVE_CONTRIBUTOR_DAYS: int = 90
     JOB_POLL_TIMEOUT_SECONDS: int = 240
+    GITHUB_TOKEN: str = ""
 
     @field_validator(
         "ACCESS_TOKEN_EXPIRE_MINUTES",
@@ -80,7 +81,7 @@ class Settings(BaseSettings):
                 return False
         return value
 
-    @field_validator("DATABASE_URL", "SECRET_KEY", mode="before")
+    @field_validator("DATABASE_URL", "SECRET_KEY", "GITHUB_TOKEN", mode="before")
     @classmethod
     def clean_strings(cls, value: object, info: ValidationInfo) -> str | object:
         if isinstance(value, str):
