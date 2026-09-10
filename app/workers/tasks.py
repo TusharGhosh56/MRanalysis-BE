@@ -52,7 +52,10 @@ def clone_repo(repository_id: str) -> None:
         set_repo_progress(repo.id, stage="clone", progress_pct=5)
 
         cloner = GitRepositoryCloner()
-        cloner.clone(url=repo.url, owner=repo.owner, name=repo.name)
+        actual_path = cloner.clone(url=repo.url, owner=repo.owner, name=repo.name)
+        if repo.clone_path != str(actual_path):
+            repo.clone_path = str(actual_path)
+            db.commit()
 
         update_job_progress(db, repo, stage="clone", progress_pct=25)
         set_repo_progress(repo.id, stage="clone", progress_pct=25)
@@ -92,7 +95,9 @@ def parse_history(repository_id: str) -> None:
             mapped = min(85, 30 + int(pct * 0.55))
             _set_progress(db, repo, "parse", mapped)
 
-        parse_repository_history(db, repo.id, repo.clone_path, on_progress=on_progress)
+        cloner = GitRepositoryCloner()
+        actual_path = str(cloner.clone_path_for(repo.owner, repo.name))
+        parse_repository_history(db, repo.id, actual_path, on_progress=on_progress)
 
         update_job_progress(db, repo, stage="parse", progress_pct=85)
         set_repo_progress(repo.id, stage="parse", progress_pct=85)

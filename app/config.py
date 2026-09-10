@@ -91,6 +91,19 @@ class Settings(BaseSettings):
             return clean
         return value
 
+    @field_validator("REPOS_BASE_PATH", mode="before")
+    @classmethod
+    def set_repos_base_path(cls, value: object) -> str:
+        # In serverless environments (Vercel, AWS Lambda), only /tmp is writable
+        import os
+        if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            return "/tmp/repos"
+        if isinstance(value, str):
+            clean = value.strip().strip("'").strip('"')
+            if clean:
+                return clean
+        return "./data/repos"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, value: str) -> str:

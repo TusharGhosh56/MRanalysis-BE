@@ -32,7 +32,10 @@ def _remove_tree(path: Path) -> None:
 
 class GitRepositoryCloner:
     def __init__(self, base_path: str | None = None) -> None:
-        self.base_path = Path(base_path or settings.REPOS_BASE_PATH)
+        raw_path = base_path or settings.REPOS_BASE_PATH
+        if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            raw_path = "/tmp/repos"
+        self.base_path = Path(raw_path)
 
     def clone_path_for(self, owner: str, name: str) -> Path:
         return self.base_path / owner / name
@@ -50,7 +53,12 @@ class GitRepositoryCloner:
 
     def clone(self, *, url: str, owner: str, name: str) -> Path:
         target = self.clone_path_for(owner, name)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            self.base_path = Path("/tmp/repos")
+            target = self.clone_path_for(owner, name)
+            target.parent.mkdir(parents=True, exist_ok=True)
 
         if (target / ".git").is_dir():
             try:
