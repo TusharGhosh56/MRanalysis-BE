@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     INACTIVE_CONTRIBUTOR_DAYS: int = 90
     JOB_POLL_TIMEOUT_SECONDS: int = 240
     GITHUB_TOKEN: str = ""
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
 
     @field_validator(
         "ACCESS_TOKEN_EXPIRE_MINUTES",
@@ -81,7 +83,14 @@ class Settings(BaseSettings):
                 return False
         return value
 
-    @field_validator("DATABASE_URL", "SECRET_KEY", "GITHUB_TOKEN", mode="before")
+    @field_validator(
+        "DATABASE_URL",
+        "SECRET_KEY",
+        "GITHUB_TOKEN",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        mode="before",
+    )
     @classmethod
     def clean_strings(cls, value: object, info: ValidationInfo) -> str | object:
         if isinstance(value, str):

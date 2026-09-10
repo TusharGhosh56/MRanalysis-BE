@@ -111,3 +111,94 @@ def test_me_invalid_token(client):
         headers={"Authorization": "Bearer not-a-valid-token"},
     )
     assert response.status_code == 401
+
+
+def test_google_auth_success_new_user(client):
+    from unittest.mock import MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "iss": "https://accounts.google.com",
+        "email": "newuser@gmail.com",
+        "email_verified": True,
+        "name": "Google User",
+    }
+
+    with patch("httpx.get", return_value=mock_resp):
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"credential": "valid-google-id-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+        # Verify access token works with /me
+        me_resp = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {data['access_token']}"},
+        )
+        assert me_resp.status_code == 200
+        assert me_resp.json()["email"] == "newuser@gmail.com"
+
+
+def test_google_auth_success_existing_user(client):
+    from unittest.mock import MagicMock, patch
+
+    # Register user first
+    email = "existing@gmail.com"
+    client.post("/api/v1/auth/register", json={"email": email, "password": "securepass1"})
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "iss": "accounts.google.com",
+        "email": email,
+        "email_verified": True,
+    }
+
+    with patch("httpx.get", return_value=mock_resp):
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"id_token": "valid-google-id-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+
+
+def test_google_auth_invalid_token(client):
+    from unittest.mock import MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {"error_description": "Invalid Value"}
+
+    with patch("httpx.get", return_value=mock_resp):
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"credential": "bad-google-token"},
+        )
+        assert response.status_code == 401
+
+
+def test_google_auth_unverified_email(client):
+    from unittest.mock import MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "iss": "accounts.google.com",
+        "email": "unverified@gmail.com",
+        "email_verified": False,
+    }
+
+    with patch("httpx.get", return_value=mock_resp):
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"credential": "some-token"},
+        )
+        assert response.status_code == 401
+

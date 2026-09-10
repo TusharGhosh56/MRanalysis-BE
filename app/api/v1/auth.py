@@ -5,10 +5,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import DbSession, get_current_user
 from app.core.security import PasswordValidationError
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.schemas.auth import (
+    GoogleAuthRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 from app.services.auth_service import (
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    InvalidGoogleTokenError,
+    authenticate_google_user,
     authenticate_user,
     issue_access_token,
     register_user,
@@ -52,6 +60,24 @@ def login(payload: LoginRequest, db: DbSession) -> TokenResponse:
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
+
+    return issue_access_token(user)
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="Authenticate with Google and receive a JWT access token",
+)
+def google_auth(payload: GoogleAuthRequest, db: DbSession) -> TokenResponse:
+    try:
+        user = authenticate_google_user(db, payload=payload)
+    except InvalidGoogleTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
     return issue_access_token(user)
 

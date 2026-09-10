@@ -25,3 +25,11 @@ class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     created_at: datetime
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str | None = None
+    id_token: str | None = None
+    token: str | None = None
+    code: str | None = None
+    redirect_uri: str | None = None
