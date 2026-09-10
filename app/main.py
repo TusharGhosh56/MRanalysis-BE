@@ -31,9 +31,14 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
+    cors_origins = list(settings.CORS_ORIGINS)
+    if not any(origin in ("*", "https://*") for origin in cors_origins):
+        cors_origins.extend(["*", "https://mr-analysis-kohl.vercel.app"])
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=cors_origins,
+        allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:.*",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -62,7 +67,11 @@ def create_app() -> FastAPI:
 
         return RedirectResponse(url="/docs")
 
+    # Support /api/v1 (standard), /api, and root prefix so frontends
+    # calling either /api/v1/auth/register or /auth/register work seamlessly.
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(api_router, prefix="/api")
+    app.include_router(api_router)
 
     return app
 
