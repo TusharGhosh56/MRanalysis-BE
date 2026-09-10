@@ -115,11 +115,15 @@ def test_me_invalid_token(client):
 
 def test_google_auth_success_new_user(client):
     from unittest.mock import MagicMock, patch
+    from app.config import get_settings
+
+    client_id = get_settings().GOOGLE_CLIENT_ID or "test-client-id"
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "iss": "https://accounts.google.com",
+        "aud": client_id,
         "email": "newuser@gmail.com",
         "email_verified": True,
         "name": "Google User",
@@ -146,6 +150,9 @@ def test_google_auth_success_new_user(client):
 
 def test_google_auth_success_existing_user(client):
     from unittest.mock import MagicMock, patch
+    from app.config import get_settings
+
+    client_id = get_settings().GOOGLE_CLIENT_ID or "test-client-id"
 
     # Register user first
     email = "existing@gmail.com"
@@ -155,6 +162,7 @@ def test_google_auth_success_existing_user(client):
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "iss": "accounts.google.com",
+        "aud": client_id,
         "email": email,
         "email_verified": True,
     }
